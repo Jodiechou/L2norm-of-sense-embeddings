@@ -1,2 +1,2 @@
 # senseEmbeddings-wordEmbeddings
-This is the evaluation scripts for \textbf{On the Curious Case of $\ell_2$ norm of Sense Embeddings} paper
+This repository includes the code related to the "On the Curious Case of l2 norm of Sense Embeddings" paper.
