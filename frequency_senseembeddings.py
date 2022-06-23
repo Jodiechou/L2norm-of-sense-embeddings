@@ -12,6 +12,9 @@ from nltk.corpus import wordnet as wn
 from transformers import BertTokenizer, BertModel, BertForMaskedLM
 from nltk.corpus import stopwords
 import string
+from glove import Glove 
+from gensim.models import Word2Vec
+# from nltk.corpus import reuters, wordnet
 
 
 logging.basicConfig(level=logging.DEBUG,
@@ -22,8 +25,6 @@ def load_instances(train_path, keys_path):
 	"""Parse XML of split set and return list of instances (dict)."""
 	train_instances = []
 	sense_mapping = get_sense_mapping(keys_path)
-	# tree = ET.parse(train_path)
-	# for text in tree.getroot():
 	text = read_xml_sents(train_path)
 	for sent_idx, sentence in enumerate(text):
 		inst = {'tokens': [], 'tokens_mw': [], 'lemmas': [], 'senses': [], 'pos': [], 'id': []}
@@ -97,7 +98,6 @@ def load_embs(vecs_path):
 			### Consider multi-words
 			idx = 0
 			for i in range(len(info)):
-				# print('info_i: ', info[i])
 				try: 
 					float(info[i])
 					x = True
@@ -106,7 +106,6 @@ def load_embs(vecs_path):
 					idx = i		
 			label, vec_str = info[:idx+1], info[idx+1:]
 			label = ' '.join(label)
-			# print('label: ', label, 'vec_str: ', vec_str[:5])
 
 			### Not consider multi-words
 			# label, vec_str = info[0], info[1:]
@@ -126,7 +125,6 @@ def load_ares_txt(path):
 			label = splitLine[0]
 			vec = np.array(splitLine[1:], dtype=float)
 			dim = vec.shape[0]
-            # print('self.dim', self.dim)
 			sense_vecs[label] = vec
 	return sense_vecs
 
@@ -136,27 +134,49 @@ def dict_slice(adict, start, end):
 	dict_slice = {}
 	for k in list(keys)[start:end]:
 		dict_slice[k] = adict[k]
-	print('dict_slice: ', dict_slice)
 	return dict_slice
 
 
 ## Get the frequency and L2 norm sense embeddings
 def get_x_y_axis(count_dict, emb):
+# def get_x_y_axis(count_dict, glove):
+#######
+### word_freq vs. distinct_sense_num #####
+# def get_x_y_axis(count_dict, distinct_sense_count_dict):
+######
 	x_axis, y_axis = [], []
 	filter_count = 0
-	# print('len of count_dict: ', len(count_dict))
+	########
 	for label in count_dict.keys():
+		# if label not in glove.dictionary:
+		# 	continue
+		if label not in embs.keys():
+			continue
+		# l2_emb = np.linalg.norm(glove.word_vectors[glove.dictionary[label]])
 		l2_emb = np.linalg.norm(emb[label])
 		squared_norm_emb = pow(l2_emb, 2)
-		# if squared_norm_emb > 30000:
+		#### For GloVe ########
+		# if squared_norm_emb > 25:
+		# # if squared_norm_emb > 30000:
 		# 	filter_count += 1
 		# 	print('label: ', label, 'count[label]: ', count_dict[label])
 		# 	continue
+		############
 		count = count_dict[label]
 		count = math.log(count)
 		x_axis.append(count)
 		y_axis.append(squared_norm_emb)
 	# print('after filtering count: ', filter_count)
+	########
+
+		######### word_freq vs. distinct_sense_num ########
+		# word_freq = count_dict[label]
+		# # word_freq = math.log(word_freq)
+		# distinct_sense_num = distinct_sense_count_dict[label]
+		# # distinct_sense_num = math.log(distinct_sense_num)
+		# x_axis.append(word_freq)
+		# y_axis.append(distinct_sense_num)
+		###########
 	return x_axis, y_axis
 
 
@@ -172,6 +192,10 @@ def load_glove_embeddings(fn):
 	return embeddings
 
 
+def count_senses(word):
+	return len(wn.synsets(word))
+
+
 if __name__ == '__main__':
 	train_path = 'external/wsd_eval/WSD_Evaluation_Framework/' + 'Training_Corpora/SemCor/semcor.data.xml'
 	keys_path = 'external/wsd_eval/WSD_Evaluation_Framework/' + 'Training_Corpora/SemCor/semcor.gold.key.txt'
@@ -179,97 +203,91 @@ if __name__ == '__main__':
 	instances = load_instances(train_path, keys_path)
 	instances_len = len(instances)
 	logging.info("Done. Loaded %d instances from dataset" % instances_len)
-	# embs = load_lmms('../eval_static_emb_bias/data/lmms_2348.bert-large-cased.fasttext-commoncrawl.npz')
-	# embs = load_lmms('../bias-sense/data/lmms_2048.bert-large-cased.npz')
-	# embs = load_lmms('../senseEmbeddings/external/lmms/lmms_1024.bert-large-cased.npz')
-	# embs = load_ares_txt("../senseEmbeddings/external/ares/ares_bert_large.txt")
-	glove_embs = load_glove_embeddings('../senseEmbeddings/external/glove/glove.840B.300d.txt')
-	embs = {}
-	emb_keys = list(glove_embs.keys())
-	print('embeddings keys: ', emb_keys[:20])
-	random.seed(52)
-	random.shuffle(emb_keys)
-	print('embedding keys after shuffle: ', emb_keys[:20])
-	for key in emb_keys:
-		embs[key] = glove_embs[key]
-	embs = dict_slice(embs, 0, 1000000)
-	print('Got 100k glove embeddings')
 
-	# embs = load_embs('../LMMS/data/vectors/lmms-large-no-norm-sense-substract-avg.vectors.txt')
-	# embs = load_embs('../LMMS/data/vectors/bert-large-no-norm-word-substract-avg.vectors.txt')
-	consider_words = True
-	device = torch.device('cuda')
-	tokenizer = BertTokenizer.from_pretrained('bert-large-cased')
-	model = BertModel.from_pretrained('bert-large-cased')
-	model.eval()
+	# glove = Glove.load('data/glove-sense-embeddings.model')
+	# word2vec = Word2Vec.load('data/word2vec.sense.model.bin')
+	# glove.word_vectors[glove.dictionary['long']]
+	# embs = load_embs('data/vectors/bert-large-no-norm-word.vectors.txt')
+	# embs = load_lmms('data/lmms_2048.bert-large-cased.npz')
+	embs = load_embs('data/vectors/lmms-large-no-norm-sense.vectors.txt')
+	consider_words = False
 	all_senses = []
 	all_word_list = []
+	distinct_sense_count_dict = {}
 	punc = '''!()-[]{};:'"\,''<>./?@#$%^&*_~``'''
 	
 	for sent_instance in instances:
 		idx_map_abs = sent_instance['idx_map_abs']
-		# print('idx_map_abs: ', idx_map_abs)
 		for mw_idx, tok_idxs in idx_map_abs:
+			######### word_freq vs. distinct_sense_num ########
+			# if sent_instance['senses'][mw_idx] is None:
+			# 	continue
+			# # sense = sent_instance['senses'][mw_idx][0]
+			# # token_word = get_sk_lemma(sense)
+			# lemma = sent_instance['lemmas'][mw_idx]
+			# token_word = lemma
+			# if token_word in stopwords.words('english'):
+			# 	continue
+			# if token_word == 'person':
+			# 	continue
+			# # if token_word in punc: 
+			# # 	continue
+			# senses_num = count_senses(token_word)
+			# distinct_sense_count_dict[token_word] = senses_num
+			# all_word_list.append(token_word)
+			# s =  wn.synsets(token_word)
+			# print('token_word: ', token_word, 'senses_num: ', senses_num, 'synsets:', s)
+			########
+			##### l2 norm embeddings vs. word/sense frequency #########
 			if consider_words:
 				for j in tok_idxs:
 					token_word = sent_instance['tokens'][j].lower()
-					# token_word = sent_instance['tokens_mw'][mw_idx].lower()
-					# print('stop words: ', stopwords.words('english'))
 					if token_word in stopwords.words('english'):
 						continue
 					if token_word in punc: 
 						continue
-					# if token_word == "''" or token_word == "'s" or token_word == 'one' or token_word == 'would' or token_word == 'said' or token_word == "n't" or token_word == 'could':
-						# continue
 					if token_word == "''" or token_word == "'s":
-						continue
-					if token_word not in embs.keys():
 						continue
 					all_word_list.append(token_word)
 			else:
 				if sent_instance['senses'][mw_idx] is None:
 					continue
 				for sense in sent_instance['senses'][mw_idx]:
-					# if sense == 'be%2:42:03::' or sense == 'person%1:03:00::' or sense == 'be%2:42:06::' or sense == 'not%4:02:00::' or sense == 'say%2:32:00::' or sense == 'group%1:03:00::' or sense == 'have%2:40:00::' or sense == 'location%1:03:00::' or  sense == 'be%2:42:05::' or  sense == 'be%2:42:00::' or sense == 'be%2:42:04::':
-					# 	continue
-					# if sense == 'be%2:42:03::' or sense == 'be%2:42:06::' or sense == 'not%4:02:00::' or  sense == 'be%2:42:05::' or  sense == 'be%2:42:00::' or sense == 'be%2:42:04::':
-					# 	continue
-					### No filtering senses
 					all_senses.append(sense)
-					# for j in tok_idxs:
-					# 	token_word = sent_instance['tokens'][j]
-					# 	all_word_list.append(token_word)
-	word_count_list, top_word_count_list = [], []
+			########
+	word_count_list, top_word_count_list, top_distinct_sense_count_dict = [], [], []
 	if consider_words:
 		word_count_dict = dict(Counter(all_word_list))
 		word_count_dict = dict(sorted(word_count_dict.items(), key=lambda item: item[1], reverse=True))
-		# print('word_count_dict: ', word_count_dict)
-		# for w, c in word_count_dict.items():
-		# 	word_count_list.append([w, c])
-		# top_word_count_list = word_count_list[-50:]	
-		top_word_count_dict = dict_slice(word_count_dict, 0, 50)
-		print('top_word_count_dict: ', top_word_count_dict)
+		distinct_sense_count_dict = dict(sorted(distinct_sense_count_dict.items(), key=lambda item: item[1], reverse=True))
+		top_word_count_dict = dict_slice(word_count_dict, 0, 10)
+		# top_distinct_sense_count_dict = dict_slice(distinct_sense_count_dict, 0, 10)
 		x_axis, y_axis = get_x_y_axis(word_count_dict, embs)
+		# x_axis, y_axis = get_x_y_axis(word_count_dict, glove)
+		# x_axis, y_axis = get_x_y_axis(word_count_dict, distinct_sense_count_dict)
 	else:
 		senses_count_dict = dict(Counter(all_senses))
 		senses_count_dict = dict(sorted(senses_count_dict.items(), key=lambda item: item[1], reverse=True))
 		top_sense_count_dict = dict_slice(senses_count_dict, 0, 50)
-		print('top_sense_count_dict: ', top_sense_count_dict)
 
 		## Check the frequency and L2 norm sense embeddings
+		# x_axis, y_axis = get_x_y_axis(senses_count_dict, glove)
 		x_axis, y_axis = get_x_y_axis(senses_count_dict, embs)
-		
+	
+	fig = plt.figure(dpi=600)
 	x_axis = np.array(x_axis)
 	y_axis = np.array(y_axis)
+	p_correlation = np.corrcoef(x_axis, y_axis)
+	print('p_correlation between x and y: ', p_correlation)
 	plt.scatter(x_axis, y_axis)
 	plt.xlabel('Log Word Frequency')
-	plt.ylabel('Squared L2 Norm Word Embeddings')
+	plt.ylabel('Squared L2 Norm BERT Word Embeddings')
+	# plt.xlabel('frequency of words')
+	# plt.ylabel('number of distinct senses')
 	# plt.ylabel('L2 Norm Sense Embeddings')  
-	# path = 'l2_embeddings-frequency-lmms-word-nofiltering-nosquared-substract-avg.png'
-	path = 'l2_embeddings-frequency-glove-word.png'
-	# path = 'test.png'
-	plt.savefig(path, format='png')
+	path = 'l2_embeddings-frequency-lmms-sc-sense-without-substract-avg.png'
+	plt.savefig(path, format='png', bbox_inches='tight')
 	print('Saved figure to %s ' % path)
-	
+
 
 
