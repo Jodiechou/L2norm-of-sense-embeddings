@@ -20,3 +20,8 @@ To train static sense embeddings using LMMS on SemCor only, you may use:
 ```bash
 python embed_annotations-sense.py
 ```
+
+To reproduce the results of MFS prediction task, you may run:
+```bash
+python mfs.py
+```
